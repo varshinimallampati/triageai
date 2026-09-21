@@ -11,6 +11,7 @@ function guessMime(name: string, given: string): string {
   if (n.endsWith('.pdf')) return 'application/pdf'
   if (n.endsWith('.png')) return 'image/png'
   if (n.endsWith('.jpg') || n.endsWith('.jpeg')) return 'image/jpeg'
+  if (n.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   if (n.endsWith('.txt') || n.endsWith('.doc')) return 'text/plain'
   return 'application/octet-stream'
 }

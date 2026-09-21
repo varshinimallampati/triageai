@@ -121,7 +121,7 @@ export default function DrugChecker() {
                 style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: '#008b8b', border: 'none', borderRadius: 999, padding: '5px 14px', cursor: 'pointer', fontFamily: 'inherit', opacity: uploading ? 0.7 : 1 }}>
                 {uploading ? 'Uploading...' : '⬆ Upload a file'}
               </button>
-              <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.txt,.doc" style={{ display: 'none' }} onChange={uploadAndLoad} />
+              <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.txt,.doc,.docx" style={{ display: 'none' }} onChange={uploadAndLoad} />
               <button onClick={loadFromMedicalFile} disabled={loadingFromFile || uploading}
                 style={{ fontSize: 12, fontWeight: 600, color: '#008b8b', background: '#e0f5f5', border: 'none', borderRadius: 999, padding: '5px 14px', cursor: 'pointer', fontFamily: 'inherit', opacity: loadingFromFile ? 0.7 : 1 }}>
                 {loadingFromFile && !uploading ? 'Reading files...' : 'Load from my medical files'}

@@ -339,7 +339,7 @@ function DashboardContent() {
                 <div><div style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>Medical Files & Records</div><div style={{ fontSize:13, color:'#4a6b6b' }}>Uploaded files are used as context in every AI consultation.</div></div>
                 <label style={{ padding:'9px 18px', background:'#008b8b', color:'#fff', border:'none', borderRadius:999, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
                   {uploading?'Uploading...':'+ Upload file'}
-                  <input ref={fileRef} type="file" style={{ display:'none' }} accept=".pdf,.jpg,.jpeg,.png,.txt,.doc" onChange={handleFileUpload} disabled={uploading}/>
+                  <input ref={fileRef} type="file" style={{ display:'none' }} accept=".pdf,.jpg,.jpeg,.png,.txt,.doc,.docx" onChange={handleFileUpload} disabled={uploading}/>
                 </label>
               </div>
               {user.medicalFiles.length===0 ? (

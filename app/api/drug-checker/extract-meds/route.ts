@@ -2,18 +2,20 @@ import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import Anthropic from '@anthropic-ai/sdk'
+import mammoth from 'mammoth'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
 type ImageType = (typeof IMAGE_TYPES)[number]
 
-function kindOf(name: string, mime: string): 'pdf' | 'image' | 'text' | null {
+function kindOf(name: string, mime: string): 'pdf' | 'image' | 'text' | 'docx' | null {
   const n = name.toLowerCase()
+  if (n.endsWith('.docx') || mime.includes('wordprocessingml')) return 'docx'
   if (mime === 'application/pdf' || n.endsWith('.pdf')) return 'pdf'
   if ((IMAGE_TYPES as readonly string[]).includes(mime) || /\.(jpe?g|png|gif|webp)$/.test(n)) return 'image'
   if (mime.startsWith('text/') || /\.(txt|doc|md|csv)$/.test(n)) return 'text'
-  return null // e.g. .docx, which can't be read directly
+  return null
 }
 
 function imageType(name: string, mime: string): ImageType {
@@ -52,6 +54,14 @@ export async function GET() {
       blocks.push({ type: 'image', source: { type: 'base64', media_type: imageType(f.name, stored.mime), data: base64 } })
     } else if (kind === 'text') {
       blocks.push({ type: 'text', text: `File "${f.name}":\n${Buffer.from(stored.data).toString('utf-8')}` })
+    } else if (kind === 'docx') {
+      try {
+        const { value } = await mammoth.extractRawText({ buffer: Buffer.from(stored.data) })
+        if (!value.trim()) continue
+        blocks.push({ type: 'text', text: `File "${f.name}":\n${value}` })
+      } catch {
+        continue // damaged or unsupported Word file
+      }
     } else {
       continue
     }
@@ -59,7 +69,7 @@ export async function GET() {
   }
 
   if (blocks.length === 0) {
-    return NextResponse.json({ medications: [], error: 'None of your saved files could be read (files uploaded before the latest update need to be uploaded again). Click "Upload a file" to add a PDF, photo (JPG/PNG), or text file.' })
+    return NextResponse.json({ medications: [], error: 'None of your saved files could be read (files uploaded before the latest update need to be uploaded again). Click "Upload a file" to add a PDF, Word (.docx), photo (JPG/PNG), or text file.' })
   }
 
   blocks.push({
