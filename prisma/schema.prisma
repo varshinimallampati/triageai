@@ -1,0 +1,46 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                    String   @id @default(cuid())
+  firstName             String
+  lastName              String
+  email                 String   @unique
+  phone                 String
+  dateOfBirth           String
+  bloodType             String
+  emergencyContactName  String
+  emergencyContactPhone String
+  password              String
+  autoSendEmergency     Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  consultations Consultation[]
+  medicalFiles  MedicalFile[]
+}
+
+model Consultation {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  messages    Json
+  triageLevel String?
+  summary     String?
+  createdAt   DateTime @default(now())
+}
+
+model MedicalFile {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  name      String
+  url       String
+  type      String
+  createdAt DateTime @default(now())
+}

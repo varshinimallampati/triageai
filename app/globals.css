@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --teal: #008b8b;
+  --teal-dark: #006f6f;
+  --teal-light: #e0f5f5;
+  --teal-mid: #b2e0e0;
+  --lime: #c5d928;
+  --lime-dark: #a8bb1a;
+  --bg: #f0f8f8;
+  --white: #ffffff;
+  --text: #1a2e2e;
+  --muted: #4a6b6b;
+  --border: #c8e0e0;
+  --green: #16a34a;
+  --green-bg: #f0fdf4;
+  --amber: #b45309;
+  --amber-bg: #fffbeb;
+  --red: #dc2626;
+  --red-bg: #fef2f2;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Satoshi', 'Helvetica Neue', sans-serif;
+  background: var(--white);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-pulse-dot { animation: pulse 2s infinite; }
+.animate-fadeIn { animation: fadeIn 0.3s ease forwards; }
