@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Logo from '@/components/Logo'
 import Toolbar from '@/components/Toolbar'
+import EmailSummaryModal from '@/components/EmailSummaryModal'
 
 interface Message { role:'user'|'assistant'; content:string; image?:string }
 
@@ -16,8 +17,8 @@ function ChatContent() {
   const [consultationId, setConsultationId] = useState<string|null>(params.get('id'))
   const [triageLevel, setTriageLevel] = useState<string|null>(null)
   const [showEmailPrompt, setShowEmailPrompt] = useState(false)
-  const [emailSent, setEmailSent] = useState(false)
-  const [sendingEmail, setSendingEmail] = useState(false)
+  const [showEmailModal, setShowEmailModal] = useState(false)
+  const [autoOpenEmail, setAutoOpenEmail] = useState(false)
   const [userName, setUserName] = useState('')
   const [initialized, setInitialized] = useState(false)
   const [selectedImage, setSelectedImage] = useState<string|null>(null)
@@ -29,7 +30,7 @@ function ChatContent() {
   useEffect(() => {
     fetch('/api/auth/me')
       .then(r => { if (!r.ok) { router.push('/'); return null } return r.json() })
-      .then(d => { if (d?.user) setUserName(d.user.firstName) })
+      .then(d => { if (d?.user) { setUserName(d.user.firstName); setAutoOpenEmail(!!d.user.autoSendEmergency) } })
   }, [router])
 
   useEffect(() => {
@@ -95,8 +96,10 @@ function ChatContent() {
       setConsultationId(data.consultationId)
       if (data.triageLevel) {
         setTriageLevel(data.triageLevel)
-        if (data.triageLevel === 'ER' && !data.autoSentEmail) setShowEmailPrompt(true)
-        if (data.autoSentEmail) setEmailSent(true)
+        if (data.triageLevel === 'ER') {
+          setShowEmailPrompt(true)
+          if (autoOpenEmail) setShowEmailModal(true)
+        }
       }
     } catch (e) { console.error(e) }
     finally { setLoading(false) }
@@ -112,17 +115,6 @@ function ChatContent() {
       setImagePreview(ev.target?.result as string)
     }
     reader.readAsDataURL(file)
-  }
-
-  async function handleSendEmail() {
-    setSendingEmail(true)
-    const symptomSummary = messages.filter(m => m.role === 'user').map(m => m.content).join(' | ')
-    const res = await fetch('/api/emergency/send', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ consultationId, symptomSummary })
-    })
-    if (res.ok) { setEmailSent(true); setShowEmailPrompt(false) }
-    setSendingEmail(false)
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -170,21 +162,16 @@ function ChatContent() {
               <span style={{ fontSize: 13, fontWeight: 700, color: triage.color, textTransform: 'uppercase', letterSpacing: 0.5 }}>Triage Result: {triage.label}</span>
             </div>
             <div style={{ fontSize: 13.5, color: '#374151', lineHeight: 1.65 }}>{triage.msg}</div>
-            {triageLevel === 'ER' && emailSent && (
-              <div style={{ marginTop: 10, padding: '8px 12px', background: '#fff', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 12.5, color: '#15803d', fontWeight: 600 }}>
-                Emergency email sent. The hospital has your medical summary.
-              </div>
-            )}
           </div>
         )}
 
-        {showEmailPrompt && !emailSent && (
+        {showEmailPrompt && (
           <div style={{ background: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: 12, padding: '1.25rem' }}>
-            <div style={{ fontFamily: 'var(--font-serif,serif)', fontSize: '1.1rem', marginBottom: 6, color: '#7f1d1d', fontWeight: 600 }}>Send your medical summary to the nearest hospital?</div>
-            <div style={{ fontSize: 13, color: '#991b1b', marginBottom: '1rem', lineHeight: 1.65 }}>This emails your name, blood type, current symptoms, and medical history to the nearest ER so the team can prepare before you arrive.</div>
+            <div style={{ fontFamily: 'var(--font-serif,serif)', fontSize: '1.1rem', marginBottom: 6, color: '#7f1d1d', fontWeight: 600 }}>Email your medical summary to the hospital?</div>
+            <div style={{ fontSize: 13, color: '#991b1b', marginBottom: '1rem', lineHeight: 1.65 }}>This opens your email with your name, blood type, current symptoms, and medical history already filled in, so the ER team can prepare. <strong>If this is life-threatening, call 911 first.</strong></div>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={handleSendEmail} disabled={sendingEmail} style={{ padding: '9px 20px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-                {sendingEmail ? 'Sending...' : 'Yes, send email'}
+              <button onClick={() => setShowEmailModal(true)} style={{ padding: '9px 20px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                Prepare email
               </button>
               <button onClick={() => setShowEmailPrompt(false)} style={{ padding: '9px 20px', background: 'transparent', color: '#7f1d1d', border: '1.5px solid #fecaca', borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                 No, skip
@@ -303,6 +290,8 @@ function ChatContent() {
         @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
         @keyframes spin{to{transform:rotate(360deg)}}
       `}</style>
+      <EmailSummaryModal open={showEmailModal} onClose={() => setShowEmailModal(false)} urgent
+        currentTriage={triageLevel} currentSymptoms={messages.filter(m => m.role === 'user').map(m => m.content)} />
     </div>
   )
 }

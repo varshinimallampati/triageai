@@ -3,16 +3,18 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Logo from '@/components/Logo'
 import Toolbar from '@/components/Toolbar'
+import EmailSummaryModal from '@/components/EmailSummaryModal'
+import { findPlaces, formatDistance, type Place } from '@/lib/overpass'
 
-interface Doctor { name: string; address: string; rating?: number; type: string; lat: number; lng: number }
+type Doctor = Place & { type: string }
 
 const specialties = [
-  { value: 'clinic', osmKey: 'amenity', osmVal: 'clinic', label: 'General Doctor', icon: '⚕' },
-  { value: 'hospital', osmKey: 'amenity', osmVal: 'hospital', label: 'Hospital', icon: '🏥' },
-  { value: 'dentist', osmKey: 'amenity', osmVal: 'dentist', label: 'Dentist', icon: '🦷' },
-  { value: 'physiotherapy', osmKey: 'amenity', osmVal: 'physiotherapy', label: 'Physio', icon: '🤸' },
-  { value: 'pharmacy', osmKey: 'amenity', osmVal: 'pharmacy', label: 'Pharmacy', icon: '💊' },
-  { value: 'optometrist', osmKey: 'healthcare', osmVal: 'optometrist', label: 'Eye Care', icon: '👁' },
+  { value: 'clinic', filters: ['"amenity"="doctors"', '"amenity"="clinic"', '"healthcare"="doctor"'], label: 'General Doctor', icon: '⚕' },
+  { value: 'hospital', filters: ['"amenity"="hospital"', '"healthcare"="hospital"'], label: 'Hospital', icon: '🏥' },
+  { value: 'dentist', filters: ['"amenity"="dentist"', '"healthcare"="dentist"'], label: 'Dentist', icon: '🦷' },
+  { value: 'physiotherapy', filters: ['"healthcare"="physiotherapist"', '"amenity"="physiotherapist"'], label: 'Physio', icon: '🤸' },
+  { value: 'pharmacy', filters: ['"amenity"="pharmacy"', '"healthcare"="pharmacy"'], label: 'Pharmacy', icon: '💊' },
+  { value: 'optometrist', filters: ['"healthcare"="optometrist"', '"shop"="optician"'], label: 'Eye Care', icon: '👁' },
 ]
 
 export default function FindADoctor() {
@@ -22,8 +24,7 @@ export default function FindADoctor() {
   const [error, setError] = useState('')
   const [specialty, setSpecialty] = useState('clinic')
   const [searched, setSearched] = useState(false)
-  const [emailSent, setEmailSent] = useState<string|null>(null)
-  const [sendingEmail, setSendingEmail] = useState<string|null>(null)
+  const [emailTarget, setEmailTarget] = useState<Doctor|null>(null)
 
   async function findDoctors() {
     setLoading(true)
@@ -36,47 +37,21 @@ export default function FindADoctor() {
         const { latitude, longitude } = pos.coords
         const spec = specialties.find(s => s.value === specialty)!
         try {
-          // Try both node and way queries for better coverage
-          const query = `[out:json][timeout:25];(node["${spec.osmKey}"="${spec.osmVal}"](around:8000,${latitude},${longitude});way["${spec.osmKey}"="${spec.osmVal}"](around:8000,${latitude},${longitude}););out center 10;`
-          const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`)
-          const data = await res.json()
-          const results = (data.elements || []).slice(0, 8).map((p: {tags:{name?:string;['addr:street']?:string;['addr:city']?:string};lat?:number;lon?:number;center?:{lat:number;lon:number}}) => ({
-            name: p.tags?.name || `${spec.label} Facility`,
-            address: [p.tags?.['addr:street'], p.tags?.['addr:city']].filter(Boolean).join(', ') || 'Nearby',
-            type: specialty,
-            lat: p.lat ?? p.center?.lat ?? latitude,
-            lng: p.lon ?? p.center?.lon ?? longitude
-          })).filter((d: Doctor) => d.name !== `${spec.label} Facility` || d.address !== 'Nearby')
+          const places = await findPlaces(spec.filters, latitude, longitude)
+          const results: Doctor[] = places.map(p => ({ ...p, type: specialty }))
 
           if (results.length === 0) {
-            setError(`No ${spec.label} found within 8km. Try a different type or check location access.`)
+            setError(`No ${spec.label} found within 8 km. Try a different type.`)
           } else {
             setDoctors(results)
           }
         } catch {
-          setError('Could not fetch results. Please try again.')
+          setError('The map service is busy right now. Please wait a few seconds and try again.')
         }
         setLoading(false)
       },
       () => { setError('Could not get your location. Please allow location access in your browser settings.'); setLoading(false) }
     )
-  }
-
-  async function emailDoctor(doctor: Doctor) {
-    setSendingEmail(doctor.name)
-    try {
-      const res = await fetch('/api/emergency/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          consultationId: null,
-          symptomSummary: `Patient requesting appointment at ${doctor.name}, ${doctor.address}.`
-        })
-      })
-      if (res.ok) setEmailSent(doctor.name)
-      else setError('Failed to send. Check your email settings.')
-    } catch { setError('Failed to send email.') }
-    setSendingEmail(null)
   }
 
   const selectedSpecialty = specialties.find(s => s.value === specialty)
@@ -95,7 +70,7 @@ export default function FindADoctor() {
           <div style={{ fontFamily: 'var(--font-serif,serif)', fontSize: 'clamp(1.8rem,4vw,2.6rem)', fontWeight: 600, marginBottom: 8, letterSpacing: -0.5, lineHeight: 1.1 }}>
             Find care <em style={{ color: '#008b8b' }}>near you.</em>
           </div>
-          <div style={{ fontSize: 14, color: '#4a6b6b', lineHeight: 1.7 }}>Doctors, hospitals, and clinics near your location. Send your medical summary directly to any facility.</div>
+          <div style={{ fontSize: 14, color: '#4a6b6b', lineHeight: 1.7 }}>Doctors, hospitals, and clinics near your location. Email your medical summary to any facility.</div>
         </div>
 
         <div style={{ background: '#fff', border: '1px solid #c8e0e0', borderRadius: 16, padding: '1.5rem', marginBottom: '1.5rem' }}>
@@ -115,7 +90,6 @@ export default function FindADoctor() {
         </div>
 
         {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '12px 16px', color: '#dc2626', fontSize: 13, marginBottom: '1.5rem' }}>{error}</div>}
-        {emailSent && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '12px 16px', color: '#16a34a', fontSize: 13, marginBottom: '1.5rem', fontWeight: 600 }}>✓ Your medical summary was sent to {emailSent}!</div>}
 
         {loading && (
           <div style={{ textAlign: 'center', padding: '3rem', background: '#fff', border: '1px solid #c8e0e0', borderRadius: 16 }}>
@@ -147,6 +121,7 @@ export default function FindADoctor() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 15, fontWeight: 700, color: '#1a2e2e', marginBottom: 3 }}>{d.name}</div>
                       <div style={{ fontSize: 13, color: '#4a6b6b' }}>{d.address}</div>
+                      <div style={{ fontSize: 12, color: '#008b8b', fontWeight: 600, marginTop: 3 }}>{formatDistance(d.distanceKm)} away{d.phone ? <> · <a href={`tel:${d.phone}`} style={{ color: '#008b8b' }}>{d.phone}</a></> : null}</div>
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -156,22 +131,22 @@ export default function FindADoctor() {
                       onMouseLeave={e => { e.currentTarget.style.background = '#f0f8f8'; e.currentTarget.style.borderColor = '#c8e0e0' }}>
                       📍 Directions
                     </button>
-                    <button onClick={() => emailDoctor(d)} disabled={sendingEmail === d.name || emailSent === d.name}
-                      style={{ padding: '8px 16px', background: emailSent === d.name ? '#f0fdf4' : '#008b8b', color: emailSent === d.name ? '#16a34a' : '#fff', border: emailSent === d.name ? '1.5px solid #bbf7d0' : 'none', borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: sendingEmail === d.name ? 0.7 : 1, transition: 'all 0.15s' }}
-                      onMouseEnter={e => { if (!emailSent) e.currentTarget.style.background = '#006f6f' }}
-                      onMouseLeave={e => { if (!emailSent) e.currentTarget.style.background = '#008b8b' }}>
-                      {emailSent === d.name ? '✓ Sent!' : sendingEmail === d.name ? 'Sending...' : '📧 Email My Summary'}
+                    <button onClick={() => setEmailTarget(d)}
+                      style={{ padding: '8px 16px', background: '#008b8b', color: '#fff', border: 'none', borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                      📧 Email My Summary
                     </button>
                   </div>
                 </div>
               ))}
             </div>
             <div style={{ marginTop: 14, padding: '12px 16px', background: '#e0f5f5', border: '1px solid #b2e0e0', borderRadius: 10, fontSize: 12.5, color: '#006f6f', lineHeight: 1.6 }}>
-              "Email My Summary" sends your full medical history, blood type, and emergency contact to that facility so they can prepare before you arrive.
+              "Email My Summary" opens your own email with your medical summary filled in, so you can review it and send it to the facility yourself.
             </div>
           </div>
         )}
       </div>
+      <EmailSummaryModal open={!!emailTarget} onClose={() => setEmailTarget(null)}
+        recipientName={emailTarget?.name} recipientEmail={emailTarget?.email} recipientPhone={emailTarget?.phone} />
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )

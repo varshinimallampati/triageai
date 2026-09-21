@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Logo from '@/components/Logo'
 import Toolbar from '@/components/Toolbar'
@@ -15,6 +15,8 @@ export default function DrugChecker() {
   const [drugs, setDrugs] = useState(['', ''])
   const [loading, setLoading] = useState(false)
   const [loadingFromFile, setLoadingFromFile] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [result, setResult] = useState<DrugResult | null>(null)
   const [error, setError] = useState('')
 
@@ -30,6 +32,28 @@ export default function DrugChecker() {
     setDrugs(p => p.map((d, idx) => idx === i ? val : d))
   }
 
+  async function uploadAndLoad(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    setError('')
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/files/upload', { method: 'POST', body: formData })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setError(d.error || 'Upload failed. Please try again.')
+      } else {
+        await loadFromMedicalFile()
+      }
+    } catch {
+      setError('Upload failed. Please try again.')
+    }
+    setUploading(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   async function loadFromMedicalFile() {
     setLoadingFromFile(true)
     setError('')
@@ -40,7 +64,7 @@ export default function DrugChecker() {
         const meds = data.medications.length >= 2 ? data.medications : [...data.medications, '']
         setDrugs(meds)
       } else {
-        setError('No medications found in your uploaded medical files. Make sure you have uploaded a .txt file with medication information.')
+        setError(data.error || 'No medications found in your uploaded medical files.')
       }
     } catch {
       setError('Could not load medications from your files.')
@@ -92,10 +116,17 @@ export default function DrugChecker() {
         <div style={{ background: '#fff', border: '1px solid #c8e0e0', borderRadius: 16, padding: '1.75rem', marginBottom: '1.5rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2e2e', textTransform: 'uppercase', letterSpacing: 0.5 }}>Enter Medications</div>
-            <button onClick={loadFromMedicalFile} disabled={loadingFromFile}
-              style={{ fontSize: 12, fontWeight: 600, color: '#008b8b', background: '#e0f5f5', border: 'none', borderRadius: 999, padding: '5px 14px', cursor: 'pointer', fontFamily: 'inherit', opacity: loadingFromFile ? 0.7 : 1 }}>
-              {loadingFromFile ? 'Loading...' : '⬆ Load from my medical files'}
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <button onClick={() => fileInputRef.current?.click()} disabled={uploading || loadingFromFile}
+                style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: '#008b8b', border: 'none', borderRadius: 999, padding: '5px 14px', cursor: 'pointer', fontFamily: 'inherit', opacity: uploading ? 0.7 : 1 }}>
+                {uploading ? 'Uploading...' : '⬆ Upload a file'}
+              </button>
+              <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.txt,.doc" style={{ display: 'none' }} onChange={uploadAndLoad} />
+              <button onClick={loadFromMedicalFile} disabled={loadingFromFile || uploading}
+                style={{ fontSize: 12, fontWeight: 600, color: '#008b8b', background: '#e0f5f5', border: 'none', borderRadius: 999, padding: '5px 14px', cursor: 'pointer', fontFamily: 'inherit', opacity: loadingFromFile ? 0.7 : 1 }}>
+                {loadingFromFile && !uploading ? 'Reading files...' : 'Load from my medical files'}
+              </button>
+            </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: '1.25rem' }}>

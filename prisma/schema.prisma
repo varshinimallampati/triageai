@@ -44,3 +44,8 @@ model MedicalFile {
   type      String
   createdAt DateTime @default(now())
 }
+model MedicalFileData {
+  fileId String @id
+  data   Bytes
+  mime   String
+}

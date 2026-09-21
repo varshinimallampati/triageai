@@ -3,6 +3,8 @@ import { useEffect, useState, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Logo from '@/components/Logo'
 import Toolbar from '@/components/Toolbar'
+import EmailSummaryModal from '@/components/EmailSummaryModal'
+import { findPlaces, formatDistance, type Place } from '@/lib/overpass'
 
 interface MedicalFile { id:string; name:string; type:string; createdAt:string; url:string }
 interface Consultation { id:string; triageLevel:string|null; createdAt:string; messages:{role:string;content:string}[] }
@@ -41,7 +43,8 @@ function DashboardContent() {
   const [summary, setSummary] = useState('')
   const [summaryData, setSummaryData] = useState<{name:string;dob:string;bloodType:string;phone:string;emergencyContact:string;consultationCount:number;files:string[];generatedAt:string}|null>(null)
   const [loadingSummary, setLoadingSummary] = useState(false)
-  const [nearbyHospitals, setNearbyHospitals] = useState<{name:string;address:string;distance:string;lat:number;lng:number}[]>([])
+  const [nearbyHospitals, setNearbyHospitals] = useState<Place[]>([])
+  const [emailTarget, setEmailTarget] = useState<Place|null>(null)
   const [locationError, setLocationError] = useState('')
   const [loadingNearby, setLoadingNearby] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -100,6 +103,7 @@ function DashboardContent() {
     const formData = new FormData(); formData.append('file', file)
     const res = await fetch('/api/files/upload', { method:'POST', body: formData })
     if (res.ok) { const data = await res.json(); setUser(p => p ? { ...p, medicalFiles: [data.file, ...p.medicalFiles] } : p) }
+    else { const d = await res.json().catch(() => ({})); alert(d.error || 'Upload failed. Please try again.') }
     setUploading(false)
     if (fileRef.current) fileRef.current.value = ''
   }
@@ -125,32 +129,17 @@ function DashboardContent() {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude, longitude } = pos.coords
-        const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY
-        if (!key || key === 'your-google-maps-api-key-here') {
-          setNearbyHospitals([
-            { name:'City General Hospital', address:'123 Main St', distance:'0.8 mi', lat:latitude+0.01, lng:longitude+0.01 },
-            { name:'St. Mary Medical Center', address:'456 Oak Ave', distance:'1.2 mi', lat:latitude-0.01, lng:longitude+0.02 },
-            { name:'Regional Urgent Care', address:'789 Pine Rd', distance:'2.1 mi', lat:latitude+0.02, lng:longitude-0.01 },
-          ])
-          setLoadingNearby(false)
-          return
+        try {
+          const places = await findPlaces(['"amenity"="hospital"', '"healthcare"="hospital"'], latitude, longitude, 15000, 6)
+          setNearbyHospitals(places)
+          if (places.length === 0) setLocationError('No hospitals found within 15 km. If this is an emergency, call 911.')
+        } catch {
+          setLocationError('The map service is busy right now. Please try again in a few seconds. If this is an emergency, call 911.')
         }
-        const res = await fetch(`https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${latitude},${longitude}&radius=5000&type=hospital&key=${key}`)
-        const data = await res.json()
-        setNearbyHospitals((data.results||[]).slice(0,5).map((p: {name:string;vicinity:string;geometry:{location:{lat:number;lng:number}}}) => ({
-          name: p.name, address: p.vicinity, distance: '—', lat: p.geometry.location.lat, lng: p.geometry.location.lng
-        })))
         setLoadingNearby(false)
       },
       () => { setLocationError('Could not get your location. Please allow location access and try again.'); setLoadingNearby(false) }
     )
-  }
-
-  async function sendEmergencyEmail(hospitalName: string) {
-    if (!user) return
-    const symptomSummary = user.consultations.slice(0,3).flatMap(c => (c.messages as {role:string;content:string}[]).filter(m=>m.role==='user').map(m=>m.content)).join(' | ')
-    await fetch('/api/emergency/send', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ consultationId: null, symptomSummary: `Sending to ${hospitalName}. Recent symptoms: ${symptomSummary}` }) })
-    alert(`Emergency email sent to ${hospitalName} with your full medical summary.`)
   }
 
   async function logout() {
@@ -350,7 +339,7 @@ function DashboardContent() {
                 <div><div style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>Medical Files & Records</div><div style={{ fontSize:13, color:'#4a6b6b' }}>Uploaded files are used as context in every AI consultation.</div></div>
                 <label style={{ padding:'9px 18px', background:'#008b8b', color:'#fff', border:'none', borderRadius:999, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
                   {uploading?'Uploading...':'+ Upload file'}
-                  <input ref={fileRef} type="file" style={{ display:'none' }} accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={handleFileUpload} disabled={uploading}/>
+                  <input ref={fileRef} type="file" style={{ display:'none' }} accept=".pdf,.jpg,.jpeg,.png,.txt,.doc" onChange={handleFileUpload} disabled={uploading}/>
                 </label>
               </div>
               {user.medicalFiles.length===0 ? (
@@ -362,7 +351,7 @@ function DashboardContent() {
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))', gap:12 }}>
                   {user.medicalFiles.map(f => (
                     <div key={f.id} style={{ border:'1px solid #c8e0e0', borderRadius:10, padding:'1rem', display:'flex', alignItems:'flex-start', gap:10, background:'#f0f8f8' }}>
-                      <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.name}</div><div style={{ fontSize:11, color:'#4a6b6b', marginTop:2 }}>{new Date(f.createdAt).toLocaleDateString()}</div></div>
+                      <div style={{ flex:1, minWidth:0 }}><a href={f.url} target="_blank" rel="noreferrer" style={{ display:'block', fontSize:13, fontWeight:600, color:'inherit', textDecoration:'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.name}</a><div style={{ fontSize:11, color:'#4a6b6b', marginTop:2 }}>{new Date(f.createdAt).toLocaleDateString()}</div></div>
                       <button onClick={() => deleteFile(f.id)} style={{ background:'none', border:'none', color:'#dc2626', cursor:'pointer', fontSize:18, lineHeight:1 }}>×</button>
                     </div>
                   ))}
@@ -438,16 +427,16 @@ function DashboardContent() {
                       <div style={{ flex:1 }}>
                         <div style={{ fontSize:15, fontWeight:700, marginBottom:3 }}>{h.name}</div>
                         <div style={{ fontSize:13, color:'#4a6b6b' }}>{h.address}</div>
-                        {h.distance !== '—' && <div style={{ fontSize:12, color:'#008b8b', fontWeight:600, marginTop:3 }}>{h.distance} away</div>}
+                        <div style={{ fontSize:12, color:'#008b8b', fontWeight:600, marginTop:3 }}>{formatDistance(h.distanceKm)} away{h.phone ? <> · <a href={`tel:${h.phone}`} style={{ color:'#008b8b' }}>{h.phone}</a></> : null}</div>
                       </div>
                       <div style={{ display:'flex', gap:8 }}>
                         <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lng}`, '_blank')}
                           style={{ padding:'8px 16px', background:'#e0f5f5', color:'#006f6f', border:'none', borderRadius:999, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
                           Get Directions
                         </button>
-                        <button onClick={() => sendEmergencyEmail(h.name)}
+                        <button onClick={() => setEmailTarget(h)}
                           style={{ padding:'8px 16px', background:'#dc2626', color:'#fff', border:'none', borderRadius:999, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
-                          Alert Hospital
+                          Email Summary
                         </button>
                       </div>
                     </div>
@@ -531,7 +520,7 @@ function DashboardContent() {
                       Copy to Clipboard
                     </button>
                     <button onClick={() => {
-                      window.open(`mailto:?subject=Medical Summary - ${summaryData.name}&body=${encodeURIComponent(`Patient: ${summaryData.name}\nDOB: ${summaryData.dob}\nBlood Type: ${summaryData.bloodType}\n\n${summary}`)}`)
+                      window.location.href = (`mailto:?subject=${encodeURIComponent(`Medical Summary - ${summaryData.name}`)}&body=${encodeURIComponent(`Patient: ${summaryData.name}\nDOB: ${summaryData.dob}\nBlood Type: ${summaryData.bloodType}\n\n${summary}`)}`)
                     }} style={{ padding:'10px 20px', background:'transparent', color:'#1a2e2e', border:'1.5px solid #c8e0e0', borderRadius:999, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
                       Email to Doctor
                     </button>
@@ -548,7 +537,7 @@ function DashboardContent() {
               <div style={{ background:'#fff5f5', border:'1.5px solid #fecaca', borderRadius:14, overflow:'hidden', marginBottom:'1.5rem' }}>
                 <div style={{ background:'#dc2626', color:'#fff', padding:'12px 20px', fontSize:12, fontWeight:700, textTransform:'uppercase', letterSpacing:0.8, display:'flex', alignItems:'center', gap:8 }}>
                   <span style={{ width:7, height:7, borderRadius:'50%', background:'#fff', display:'inline-block', animation:'pulse 1.5s infinite' }}/>
-                  Auto-send emergency email
+                  Auto-open emergency email
                 </div>
                 <div style={{ padding:'1.5rem' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:14, marginBottom:'1rem' }}>
@@ -557,18 +546,18 @@ function DashboardContent() {
                       <span style={{ width:20, height:20, borderRadius:'50%', background:'#fff', position:'absolute', top:4, left:user.autoSendEmergency?26:4, transition:'left 0.2s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }}/>
                     </button>
                     <div style={{ fontSize:15, fontWeight:700, color:user.autoSendEmergency?'#16a34a':'#4a6b6b' }}>
-                      {user.autoSendEmergency ? 'Enabled — will auto-send' : 'Disabled — will ask first'}
+                      {user.autoSendEmergency ? 'Enabled — opens automatically' : 'Disabled — will ask first'}
                     </div>
                   </div>
-                  <div style={{ fontSize:13, color:'#7f1d1d', lineHeight:1.7 }}>When enabled, TriageAI automatically emails the nearest hospital with your full medical summary when an ER emergency is detected.</div>
+                  <div style={{ fontSize:13, color:'#7f1d1d', lineHeight:1.7 }}>When enabled, TriageAI immediately opens a pre-filled email with your medical summary whenever a consultation result is Emergency. You review it and press Send yourself. In a real emergency, always call 911 first.</div>
                 </div>
               </div>
               <div style={{ background:'#f0f8f8', border:'1px solid #c8e0e0', borderRadius:12, padding:'1.25rem' }}>
                 <div style={{ fontSize:14, fontWeight:700, marginBottom:8 }}>Alert nearby hospital manually</div>
-                <div style={{ fontSize:13, color:'#4a6b6b', marginBottom:12, lineHeight:1.6 }}>Go to the &quot;Nearby Hospitals&quot; tab to find hospitals near you and send them your medical summary with one click.</div>
+                <div style={{ fontSize:13, color:'#4a6b6b', marginBottom:12, lineHeight:1.6 }}>Go to the &quot;Nearby Hospitals&quot; tab to find real hospitals near you and email them your medical summary.</div>
                 <button onClick={() => setActiveTab('nearby')}
                   style={{ padding:'9px 20px', background:'#dc2626', color:'#fff', border:'none', borderRadius:999, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
-                  Find & Alert Nearby Hospital
+                  Find Nearby Hospitals
                 </button>
               </div>
             </div>
@@ -576,6 +565,8 @@ function DashboardContent() {
         </div>
       </div>
       <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}} @keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <EmailSummaryModal open={!!emailTarget} onClose={() => setEmailTarget(null)} urgent
+        recipientName={emailTarget?.name} recipientEmail={emailTarget?.email} recipientPhone={emailTarget?.phone} />
     </div>
   )
 }
